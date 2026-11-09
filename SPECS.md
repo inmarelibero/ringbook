@@ -317,6 +317,8 @@ ringbook/
   Cargo.toml              workspace
   crates/
     core/                 event types, prices as fixed-point integers
+    clock/                event-time and measurement clocks
+    testkit/              allocation-counting test support
     ring/                 SPSC ring buffer
     feeds/                VenueAdapter trait, generic feed handler, recorder
     venues/hyperliquid/   Hyperliquid adapter
@@ -336,6 +338,8 @@ ringbook/
   frontend/               Svelte single page
   analysis/               Rust CLI: reads TimescaleDB, renders report charts
   fuzz/                   cargo-fuzz targets
+  scripts/                baseline benchmarks, crate boundary check
+  configs/                committed trading rules
   infra/
     docker-compose.yml    TimescaleDB, Prometheus, Grafana, app, mock venue, reverse proxy
     grafana/              dashboards
@@ -372,7 +376,7 @@ Two vCPUs run at full utilisation by design, so confirm this is acceptable under
 
 **Storage and retention**
 
-- Recordings and journals rotate by size and carry a total disk quota; the oldest closed files are removed first, and active files never are.
+- The engine's journal rotates on a clean restart, which archives it. Archived journals and recordings carry a total disk quota (`infra/tuning/retention.sh`); the oldest closed files are removed first, and active files never are.
 - TimescaleDB uses a retention policy, and container logs rotate.
 - If the recorder can't write, recording stops and an alert fires while trading continues.
 - If the journal can't write, the engine enters a global halt with reason `JournalWriteFailed`.
@@ -392,7 +396,7 @@ The first release is finished when all of these hold.
 - [ ] `docker compose up` shows live metrics in Grafana and stores a run's stats, and the analysis CLI charts them
 - [ ] The live demo works from a fresh clone in under five minutes, given network access to both venues
 - [ ] The FIX parser is in place, the public demo runs on the VPS, and v0.1.0 is tagged
-- [ ] The README includes a demo GIF and the AI-workflow write-up, and a stranger can understand the project from it alone
+- [ ] The README includes the AI-workflow write-up, and a stranger can understand the project from it alone
 
 ## Open-source release
 

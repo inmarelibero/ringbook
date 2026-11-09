@@ -1,0 +1,21 @@
+[package]
+name = "ringbook-api"
+description = "Read-only WebSocket and HTTP gateway for the frontend"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+axum.workspace = true
+ringbook-core.workspace = true
+ringbook-engine.workspace = true
+ringbook-ring.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+tokio.workspace = true

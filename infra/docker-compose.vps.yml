@@ -1,0 +1,31 @@
+# Thread placement for a six-vCPU server, used with the base file:
+#
+#   docker compose -f infra/docker-compose.yml -f infra/docker-compose.vps.yml up -d --build
+#
+# vCPU 0: OS, interrupts, reverse proxy, TimescaleDB, Prometheus, Grafana
+# vCPU 1: feed handlers
+# vCPU 2: hot thread
+# vCPU 3: order gateway
+# vCPU 4: mock venue
+# vCPU 5: journal, telemetry and control
+
+services:
+  timescaledb:
+    cpuset: "0"
+  prometheus:
+    cpuset: "0"
+  grafana:
+    cpuset: "0"
+  web:
+    cpuset: "0"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS to the public domain}
+    ports: !override
+      - "80:80"
+      - "443:443"
+  mock-venue:
+    cpuset: "4"
+  engine:
+    cpuset: "1,2,3,5"
+    environment:
+      RINGBOOK_CORE_OPTIONS: --hot-core 2 --gateway-core 3

@@ -1,0 +1,23 @@
+[package]
+name = "ringbook-ring"
+description = "Bounded lock-free single-producer single-consumer ring buffer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[target.'cfg(loom)'.dependencies]
+loom.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+proptest.workspace = true
+ringbook-testkit.workspace = true
+
+[[bench]]
+name = "ring"
+harness = false

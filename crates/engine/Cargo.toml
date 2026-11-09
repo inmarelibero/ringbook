@@ -1,0 +1,25 @@
+[package]
+name = "ringbook-engine"
+description = "The hot thread: strategy, risk, positions and order management"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+ringbook-book.workspace = true
+ringbook-clock.workspace = true
+ringbook-core.workspace = true
+ringbook-journal.workspace = true
+ringbook-paper-exchange.workspace = true
+ringbook-ring.workspace = true
+serde.workspace = true
+toml.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+ringbook-testkit.workspace = true

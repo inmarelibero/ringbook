@@ -1,0 +1,20 @@
+[package]
+name = "ringbook-gateway"
+description = "The binary order protocol and the order gateway thread"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+ringbook-clock.workspace = true
+ringbook-core.workspace = true
+ringbook-engine.workspace = true
+ringbook-ring.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

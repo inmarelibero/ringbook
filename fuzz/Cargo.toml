@@ -1,0 +1,49 @@
+[package]
+name = "ringbook-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+ringbook-core = { path = "../crates/core" }
+ringbook-feeds = { path = "../crates/feeds" }
+ringbook-fix = { path = "../crates/fix" }
+ringbook-gateway = { path = "../crates/gateway" }
+ringbook-venue-binance = { path = "../crates/venues/binance" }
+ringbook-venue-hyperliquid = { path = "../crates/venues/hyperliquid" }
+
+[[bin]]
+name = "decimal"
+path = "fuzz_targets/decimal.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fix_parse"
+path = "fuzz_targets/fix_parse.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "order_protocol"
+path = "fuzz_targets/order_protocol.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "hyperliquid_parser"
+path = "fuzz_targets/hyperliquid_parser.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "binance_parser"
+path = "fuzz_targets/binance_parser.rs"
+test = false
+doc = false
+
+[workspace]

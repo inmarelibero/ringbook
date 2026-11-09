@@ -1,0 +1,23 @@
+[package]
+name = "ringbook-book"
+description = "Flat price-indexed L2 order book with an occupancy bitmap"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+ringbook-core.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+proptest.workspace = true
+ringbook-testkit.workspace = true
+
+[[bench]]
+name = "book"
+harness = false
