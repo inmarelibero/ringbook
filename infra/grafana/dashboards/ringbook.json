@@ -1,0 +1,64 @@
+{
+  "title": "ringbook",
+  "uid": "ringbook",
+  "timezone": "browser",
+  "refresh": "5s",
+  "schemaVersion": 39,
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Tick-to-decision (VM measurements)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "ns" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "ringbook_latency_ns{metric=\"tick_to_decision\"}", "legendFormat": "q{{quantile}}" }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Tick-to-wire on loopback (VM measurements)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "ns" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "ringbook_latency_ns{metric=\"tick_to_wire\"}", "legendFormat": "q{{quantile}}" }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Equity and drawdown (excludes funding)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "ringbook_equity_usd", "legendFormat": "equity" },
+        { "refId": "B", "expr": "ringbook_drawdown_usd", "legendFormat": "drawdown" }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Engine activity per second",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        { "refId": "A", "expr": "rate(ringbook_engine_total[1m])", "legendFormat": "{{counter}}" }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Feed connection events",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "targets": [
+        { "refId": "A", "expr": "increase(ringbook_feed_connection_events_total[5m])", "legendFormat": "{{venue}} {{event}}" }
+      ]
+    }
+  ]
+}

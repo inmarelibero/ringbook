@@ -1,0 +1,17 @@
+[package]
+name = "ringbook-venue-binance"
+description = "Binance USD-M perpetuals market data adapter for ringbook"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+ringbook-core.workspace = true
+ringbook-feeds.workspace = true
+serde.workspace = true
+sonic-rs.workspace = true

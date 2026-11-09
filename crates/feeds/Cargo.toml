@@ -1,0 +1,23 @@
+[package]
+name = "ringbook-feeds"
+description = "The venue adapter interface, generic feed handler and recorder"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+crc32fast.workspace = true
+futures-util.workspace = true
+metrics.workspace = true
+reqwest.workspace = true
+ringbook-clock.workspace = true
+ringbook-core.workspace = true
+ringbook-ring.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+tracing.workspace = true

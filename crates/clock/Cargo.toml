@@ -1,0 +1,15 @@
+[package]
+name = "ringbook-clock"
+description = "Event-time and latency-measurement clocks"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+quanta.workspace = true
+ringbook-core.workspace = true

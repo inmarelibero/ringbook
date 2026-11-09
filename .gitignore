@@ -1,0 +1,11 @@
+/target
+.env
+/recordings
+/journals
+
+/frontend/node_modules
+/frontend/dist
+/report
+/fuzz/target
+/fuzz/corpus
+/fuzz/artifacts

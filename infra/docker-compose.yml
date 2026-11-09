@@ -1,0 +1,116 @@
+# The local stack: docker compose -f infra/docker-compose.yml up --build
+#
+# Only the web service publishes a port to the outside. Grafana is bound to
+# localhost and reached through an SSH tunnel on a server.
+
+name: ringbook
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "3"
+
+services:
+  timescaledb:
+    image: timescale/timescaledb:2.19.3-pg16
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      POSTGRES_USER: ringbook
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ringbook}
+      POSTGRES_DB: ringbook
+    volumes:
+      - timescale-data:/var/lib/postgresql/data
+      - ./db:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "127.0.0.1:5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ringbook -d ringbook"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  prometheus:
+    image: prom/prometheus:v3.2.1
+    restart: unless-stopped
+    logging: *logging
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --storage.tsdb.retention.size=5GB
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+
+  grafana:
+    image: grafana/grafana:11.5.2
+    restart: unless-stopped
+    logging: *logging
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+
+  mock-venue:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    image: ringbook-app
+    restart: unless-stopped
+    logging: *logging
+    command:
+      - ringbook
+      - mock-venue
+      - --config
+      - /etc/ringbook/demo.toml
+      - --listen
+      - 0.0.0.0:9100
+
+  engine:
+    image: ringbook-app
+    # Built by the mock-venue service; it isn't on any registry.
+    pull_policy: never
+    restart: unless-stopped
+    logging: *logging
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      mock-venue:
+        condition: service_started
+    stop_grace_period: 30s
+    environment:
+      DATABASE_URL: postgres://ringbook:${POSTGRES_PASSWORD:-ringbook}@timescaledb/ringbook
+      RINGBOOK_CTL: /run/ringbook/ctl.sock
+    command: ["/bin/sh", "/usr/local/bin/engine-entrypoint.sh"]
+    volumes:
+      - engine-data:/data
+
+  web:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.web
+    restart: unless-stopped
+    logging: *logging
+    depends_on:
+      - engine
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    ports:
+      - "${WEB_PORT:-8088}:80"
+      - "${WEB_TLS_PORT:-8443}:443"
+    volumes:
+      - caddy-data:/data
+
+volumes:
+  timescale-data:
+  prometheus-data:
+  engine-data:
+  caddy-data:
