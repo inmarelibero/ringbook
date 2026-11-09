@@ -1,13 +1,11 @@
-# Thread placement for a six-vCPU server, used with the base file:
+# Thread placement for a four-vCPU server, used with the base file:
 #
 #   docker compose -f infra/docker-compose.yml -f infra/docker-compose.vps.yml up -d --build
 #
 # vCPU 0: OS, interrupts, reverse proxy, TimescaleDB, Prometheus, Grafana
-# vCPU 1: feed handlers
+# vCPU 1: feed handlers, mock venue, API, journal, telemetry and control
 # vCPU 2: hot thread
 # vCPU 3: order gateway
-# vCPU 4: mock venue
-# vCPU 5: journal, telemetry and control
 
 services:
   timescaledb:
@@ -24,8 +22,8 @@ services:
       - "80:80"
       - "443:443"
   mock-venue:
-    cpuset: "4"
+    cpuset: "1"
   engine:
-    cpuset: "1,2,3,5"
+    cpuset: "1,2,3"
     environment:
       RINGBOOK_CORE_OPTIONS: --hot-core 2 --gateway-core 3

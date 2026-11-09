@@ -353,16 +353,14 @@ ringbook/
 
 The public demo runs on the OVH VPS under docker-compose, with CPU sets assigning each service to its vCPUs.
 
-**Thread placement** (assuming six vCPUs)
+**Thread placement** (four vCPUs)
 
 | vCPU | Workload |
 | --- | --- |
-| 0 | Operating system, interrupts, reverse proxy, API gateway, TimescaleDB, Prometheus, Grafana |
-| 1 | Feed handlers and recorder |
+| 0 | Operating system, interrupts, reverse proxy, TimescaleDB, Prometheus, Grafana |
+| 1 | Feed handlers, recorder, mock venue, API gateway, journal, telemetry, control thread and storage writer |
 | 2 | Hot thread, isolated from the scheduler |
 | 3 | Order gateway, busy-polling |
-| 4 | Mock venue |
-| 5 | Journal, telemetry, control thread and storage writer |
 
 Two vCPUs run at full utilisation by design, so confirm this is acceptable under the provider's terms for shared vCores. Published latency runs stop the database and monitoring stack first.
 
@@ -435,7 +433,7 @@ The biggest risk is scope: the first release builds every component together, so
 - Extensions: compile-time plugins only; no dynamically loaded code
 - FIX parser: kept as a small standalone crate
 - Message broker: none; one snapshot a second doesn't justify one
-- Hosting: the live demo runs and is benchmarked on an OVH VPS-2 running Linux (shared vCores; about 6 vCores and 12 GB, to confirm at order time) with a public URL
+- Hosting: the live demo runs and is benchmarked on an OVH VPS-2 running Linux (4 shared vCores) with a public URL
 
 ## Design boundaries
 
