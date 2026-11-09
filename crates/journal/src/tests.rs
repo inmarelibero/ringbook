@@ -12,6 +12,7 @@ fn header() -> JournalHeader {
         config: "spread = 4".to_owned(),
         binary_version: "0.1.0".to_owned(),
         epoch: 3,
+        run_id: 42,
     }
 }
 

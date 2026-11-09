@@ -266,8 +266,12 @@ pub fn run(args: &LiveArgs) -> Result<()> {
         }
 
         let database_url = std::env::var("DATABASE_URL").ok();
+        // A recovered run carries on as the same run.
+        let run_id = recovery
+            .as_ref()
+            .map_or(clock.event_time().0, |found| found.contents.header.run_id);
         let run_info = RunInfo {
-            run_id: clock.event_time().0 as i64,
+            run_id: run_id as i64,
             mode: if args.replay.is_some() {
                 "replay"
             } else {
@@ -309,6 +313,7 @@ pub fn run(args: &LiveArgs) -> Result<()> {
                     config: config.text.clone(),
                     binary_version: env!("CARGO_PKG_VERSION").to_owned(),
                     epoch: 1,
+                    run_id,
                 },
                 journal_rx,
                 Arc::clone(&journal_stop),

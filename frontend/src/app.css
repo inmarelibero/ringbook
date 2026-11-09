@@ -120,14 +120,25 @@ section > h2 {
   color: var(--ask);
 }
 
-select {
-  max-width: 100%;
-  padding: 6px 8px;
-  font: inherit;
-  color: inherit;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 6px;
+.note,
+.description {
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.description {
+  margin: 0 0 12px;
+}
+
+.books {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+
+h3 {
+  margin: 0 0 8px;
+  font-size: 0.9375rem;
 }
 
 .ladders {
@@ -180,11 +191,19 @@ th {
 }
 
 .bid tbody tr {
-  background: linear-gradient(to left, var(--bid-tint) var(--depth), transparent var(--depth));
+  background: linear-gradient(
+    to left,
+    var(--bid-tint) var(--depth),
+    transparent var(--depth)
+  );
 }
 
 .ask tbody tr {
-  background: linear-gradient(to left, var(--ask-tint) var(--depth), transparent var(--depth));
+  background: linear-gradient(
+    to left,
+    var(--ask-tint) var(--depth),
+    transparent var(--depth)
+  );
 }
 
 details summary {
@@ -198,12 +217,10 @@ pre {
   font-size: 0.8125rem;
 }
 
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
+@media (max-width: 760px) {
+  .books {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 @media (max-width: 480px) {

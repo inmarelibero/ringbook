@@ -76,6 +76,8 @@ services:
 
   engine:
     image: ringbook-app
+    # Built by the mock-venue service; it isn't on any registry.
+    pull_policy: never
     restart: unless-stopped
     logging: *logging
     depends_on:

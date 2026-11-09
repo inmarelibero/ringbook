@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 use ringbook_core::{ControlCommand, EventTime, ExecReport, HaltReason, NewOrder, OrderCommand};
 use ringbook_ring::Consumer;
 
-const MAGIC: &[u8; 8] = b"RBJRN\x001\n";
+const MAGIC: &[u8; 8] = b"RBJRN\x002\n";
 const FRAME_HEADER: usize = 2 + 4;
 /// Longer than any encoded record, so a larger length field must be damage.
 const MAX_RECORD: usize = 256;
@@ -92,6 +92,8 @@ pub struct JournalHeader {
     pub binary_version: String,
     /// The run epoch.
     pub epoch: u16,
+    /// Identifies the run in storage, and stays the same across recoveries.
+    pub run_id: u64,
 }
 
 impl JournalHeader {
@@ -105,6 +107,7 @@ impl JournalHeader {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&self.epoch.to_le_bytes());
         bytes.extend_from_slice(&self.config_hash().to_le_bytes());
+        bytes.extend_from_slice(&self.run_id.to_le_bytes());
         for text in [&self.config, &self.binary_version] {
             bytes.extend_from_slice(&(text.len() as u32).to_le_bytes());
             bytes.extend_from_slice(text.as_bytes());
@@ -115,7 +118,8 @@ impl JournalHeader {
     fn decode(bytes: &[u8]) -> Option<Self> {
         let epoch = u16::from_le_bytes(bytes.get(0..2)?.try_into().ok()?);
         let hash = u32::from_le_bytes(bytes.get(2..6)?.try_into().ok()?);
-        let mut offset = 6;
+        let run_id = u64::from_le_bytes(bytes.get(6..14)?.try_into().ok()?);
+        let mut offset = 14;
         let mut text = || -> Option<String> {
             let length =
                 u32::from_le_bytes(bytes.get(offset..offset + 4)?.try_into().ok()?) as usize;
@@ -128,6 +132,7 @@ impl JournalHeader {
             config: text()?,
             binary_version: text()?,
             epoch,
+            run_id,
         };
         (header.config_hash() == hash).then_some(header)
     }

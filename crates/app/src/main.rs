@@ -397,6 +397,8 @@ fn replay(
             config: config.text.clone(),
             binary_version: env!("CARGO_PKG_VERSION").to_owned(),
             epoch: 1,
+            // Replays have no storage row, and their journals must be identical.
+            run_id: 0,
         },
         journal_rx,
         Arc::clone(&journal_stop),

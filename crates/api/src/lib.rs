@@ -456,12 +456,95 @@ async fn run_stats(
     ))
 }
 
+#[derive(Debug, PartialEq, Serialize)]
+struct DayRow {
+    day: String,
+    pnl_usd: f64,
+    close_usd: f64,
+}
+
+#[derive(Debug, PartialEq, Serialize)]
+struct DailyPnl {
+    today: String,
+    baseline_usd: f64,
+    days: Vec<DayRow>,
+}
+
+/// Turns each UTC day's last equity sample, oldest day first, into daily PnL.
+///
+/// The oldest day only supplies the close before the first row, and the last
+/// day is today. A run's first day counts from zero, where every run starts.
+fn daily_pnl(window: &[(String, Option<f64>)]) -> Option<DailyPnl> {
+    let today = window.last()?.0.clone();
+    let mut previous = 0.0;
+    let mut baseline_usd = 0.0;
+    let mut days = Vec::new();
+    for (index, (day, close)) in window.iter().enumerate() {
+        let Some(close) = *close else { continue };
+        if index > 0 {
+            days.push(DayRow {
+                day: day.clone(),
+                pnl_usd: close - previous,
+                close_usd: close,
+            });
+        }
+        if *day != today {
+            baseline_usd = close;
+        }
+        previous = close;
+    }
+    days.reverse();
+    Some(DailyPnl {
+        today,
+        baseline_usd,
+        days,
+    })
+}
+
+async fn daily(State(state): State<ApiState>) -> Result<Json<DailyPnl>, StatusCode> {
+    let pool = state
+        .shared
+        .database
+        .as_ref()
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    // One indexed lookup per day, so the cost doesn't grow with the run's length.
+    let rows = sqlx::query(
+        "SELECT day::date::text AS day, sample.equity_usd
+         FROM generate_series(
+                  ((now() AT TIME ZONE 'UTC')::date - 30)::timestamp,
+                  (now() AT TIME ZONE 'UTC')::date::timestamp,
+                  INTERVAL '1 day'
+              ) AS day
+         LEFT JOIN LATERAL (
+             SELECT equity_usd
+             FROM run_stats
+             WHERE run_id = (SELECT run_id FROM runs ORDER BY started_at DESC LIMIT 1)
+               AND time >= day AT TIME ZONE 'UTC'
+               AND time < (day + INTERVAL '1 day') AT TIME ZONE 'UTC'
+             ORDER BY time DESC
+             LIMIT 1
+         ) AS sample ON true
+         ORDER BY day",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let window: Vec<(String, Option<f64>)> = rows
+        .iter()
+        .map(|row| (row.get("day"), row.get("equity_usd")))
+        .collect();
+    daily_pnl(&window)
+        .map(Json)
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)
+}
+
 /// Builds the gateway's routes. Every route is read-only.
 pub fn router(state: ApiState) -> Router {
     Router::new()
         .route("/ws", get(websocket))
         .route("/api/rules", get(rules))
         .route("/api/runs", get(runs))
+        .route("/api/daily", get(daily))
         .route("/api/runs/{run_id}/stats", get(run_stats))
         .route_layer(middleware::from_fn_with_state(state.clone(), limit_rate))
         .route("/healthz", get(health))
@@ -484,6 +567,45 @@ mod tests {
             rates: Mutex::new(HashMap::new()),
             trust_forwarded_for: true,
         })
+    }
+
+    fn day(name: &str, close: Option<f64>) -> (String, Option<f64>) {
+        (name.to_owned(), close)
+    }
+
+    #[test]
+    fn daily_pnl_measures_each_day_from_the_previous_close() {
+        let report = daily_pnl(&[
+            day("d0", Some(1.0)),
+            day("d1", Some(3.0)),
+            day("d2", None),
+            day("d3", Some(2.0)),
+            day("today", Some(2.5)),
+        ])
+        .unwrap();
+        assert_eq!(report.today, "today");
+        assert_eq!(report.baseline_usd, 2.0);
+        let days: Vec<(&str, f64)> = report
+            .days
+            .iter()
+            .map(|row| (row.day.as_str(), row.pnl_usd))
+            .collect();
+        assert_eq!(days, [("today", 0.5), ("d3", -1.0), ("d1", 2.0)]);
+    }
+
+    #[test]
+    fn a_run_that_started_today_counts_from_zero() {
+        let report = daily_pnl(&[day("d0", None), day("today", Some(-2.0))]).unwrap();
+        assert_eq!(report.baseline_usd, 0.0);
+        assert_eq!(report.days[0].pnl_usd, -2.0);
+    }
+
+    #[test]
+    fn the_baseline_is_yesterdays_close_before_todays_first_sample() {
+        let report = daily_pnl(&[day("d0", None), day("d1", Some(4.0)), day("today", None)]);
+        let report = report.unwrap();
+        assert_eq!(report.baseline_usd, 4.0);
+        assert_eq!(report.days.len(), 1);
     }
 
     fn names() -> Names {

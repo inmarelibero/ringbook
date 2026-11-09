@@ -1,6 +1,6 @@
 <script lang="ts">
   import EquityChart from "./EquityChart.svelte";
-  import type { BookUpdate, PositionUpdate, Run, Update } from "./types";
+  import type { BookUpdate, DailyPnl, PositionUpdate, Run, Update } from "./types";
 
   const MAX_POINTS = 600;
   const RECONNECT_MS = 2000;
@@ -8,7 +8,6 @@
 
   let books = $state<Record<string, BookUpdate>>({});
   let positions = $state<Record<string, PositionUpdate>>({});
-  let selected = $state<string | null>(null);
   let connected = $state(false);
   let totalEquity = $state(0);
   let equityTimes = $state<number[]>([]);
@@ -16,9 +15,13 @@
   let runs = $state<Run[]>([]);
   let runsAvailable = $state(true);
   let rules = $state("");
+  let daily = $state<DailyPnl | null>(null);
 
-  const pairKeys = $derived(Object.keys(books).sort());
-  const book = $derived(selected ? books[selected] : undefined);
+  const orderBooks = $derived(Object.entries(books).sort(([a], [b]) => a.localeCompare(b)));
+
+  const baseline = $derived(daily?.baseline_usd ?? 0);
+  const shownPnl = $derived(totalEquity - baseline);
+  const chartValues = $derived(equityValues.map((value) => value - baseline));
 
   function pairKey(update: Update): string {
     return `${update.instrument} · ${update.venue}`;
@@ -39,7 +42,6 @@
     const key = pairKey(update);
     if (update.type === "book") {
       books[key] = update;
-      selected ??= key;
     } else {
       positions[key] = update;
       recordEquity(update.total_equity_usd);
@@ -84,6 +86,17 @@
     }
   }
 
+  async function loadDaily() {
+    try {
+      const response = await fetch("/api/daily");
+      if (response.ok) {
+        daily = (await response.json()) as DailyPnl;
+      }
+    } catch {
+      // Keeps the last answer; the next refresh tries again.
+    }
+  }
+
   async function loadRules() {
     try {
       const response = await fetch("/api/rules");
@@ -98,7 +111,11 @@
   $effect(() => {
     loadRules();
     loadRuns();
-    const timer = setInterval(loadRuns, RUNS_REFRESH_MS);
+    loadDaily();
+    const timer = setInterval(() => {
+      loadRuns();
+      loadDaily();
+    }, RUNS_REFRESH_MS);
     return () => clearInterval(timer);
   });
 
@@ -128,33 +145,33 @@
 
   <section class="book" aria-labelledby="book-heading">
     <div class="section-head">
-      <h2 id="book-heading">Order book</h2>
-      <label>
-        <span class="visually-hidden">Market</span>
-        <select bind:value={selected}>
-          {#each pairKeys as key (key)}
-            <option value={key}>{key}</option>
-          {/each}
-        </select>
-      </label>
+      <h2 id="book-heading">Order books</h2>
+      <span class="note">Updated about 10 times a second per market</span>
     </div>
-    {#if book}
-      <div class="ladders">
-        {#each [{ title: "Bids", levels: book.bids, side: "bid" }, { title: "Asks", levels: book.asks, side: "ask" }] as ladder (ladder.side)}
-          <table class={ladder.side}>
-            <caption>{ladder.title}</caption>
-            <thead>
-              <tr><th scope="col">Price</th><th scope="col">Size</th></tr>
-            </thead>
-            <tbody>
-              {#each ladder.levels as level, index (index)}
-                <tr style={`--depth: ${depthShare(level[1], ladder.levels)}%`}>
-                  <td>{level[0]}</td>
-                  <td>{level[1]}</td>
-                </tr>
+    {#if orderBooks.length > 0}
+      <div class="books">
+        {#each orderBooks as [key, book] (key)}
+          <article>
+            <h3>{key}</h3>
+            <div class="ladders">
+              {#each [{ title: "Bids", levels: book.bids, side: "bid" }, { title: "Asks", levels: book.asks, side: "ask" }] as ladder (ladder.side)}
+                <table class={ladder.side}>
+                  <caption>{ladder.title}</caption>
+                  <thead>
+                    <tr><th scope="col">Price</th><th scope="col">Size</th></tr>
+                  </thead>
+                  <tbody>
+                    {#each ladder.levels as level, index (index)}
+                      <tr style={`--depth: ${depthShare(level[1], ladder.levels)}%`}>
+                        <td>{level[0]}</td>
+                        <td>{level[1]}</td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
               {/each}
-            </tbody>
-          </table>
+            </div>
+          </article>
         {/each}
       </div>
     {:else}
@@ -164,11 +181,21 @@
 
   <section aria-labelledby="pnl-heading">
     <div class="section-head">
-      <h2 id="pnl-heading">Simulated PnL</h2>
-      <strong class:negative={totalEquity < 0}>{usd(totalEquity)}</strong>
+      <h2 id="pnl-heading">{daily ? "Simulated PnL today" : "Simulated PnL"}</h2>
+      <strong class:negative={shownPnl < 0}>{usd(shownPnl)}</strong>
     </div>
+    <p class="description">
+      {#if daily}
+        Profit or loss since 00:00 UTC, across all four markets, including fees and the change in
+        value of open positions, which carry over from day to day. Shown in red when negative. The
+        run's total so far is {usd(totalEquity)}. The chart covers the time this page has been open.
+      {:else}
+        Total profit or loss for the current run, across all four markets. It starts at $0 and
+        includes fees and the current value of open positions. Shown in red when negative.
+      {/if}
+    </p>
     {#if equityTimes.length > 1}
-      <EquityChart times={equityTimes} values={equityValues} />
+      <EquityChart times={equityTimes} values={chartValues} />
     {:else}
       <p class="empty">Collecting data.</p>
     {/if}
@@ -182,7 +209,7 @@
           <tr>
             <th scope="col">Market</th>
             <th scope="col">Quantity</th>
-            <th scope="col">PnL</th>
+            <th scope="col">Run PnL</th>
           </tr>
         </thead>
         <tbody>
@@ -199,6 +226,35 @@
       </table>
     </div>
   </section>
+
+  {#if daily}
+    <section aria-labelledby="daily-heading">
+      <h2 id="daily-heading">Daily PnL</h2>
+      <div class="scroll">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Day (UTC)</th>
+              <th scope="col">PnL</th>
+              <th scope="col">Run total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each daily.days as row (row.day)}
+              {@const isToday = row.day === daily.today}
+              <tr>
+                <td>{row.day}{isToday ? " (today)" : ""}</td>
+                <td>{usd(isToday ? shownPnl : row.pnl_usd)}</td>
+                <td>{usd(isToday ? totalEquity : row.close_usd)}</td>
+              </tr>
+            {:else}
+              <tr><td colspan="3" class="empty">No daily data yet.</td></tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  {/if}
 
   <section aria-labelledby="runs-heading">
     <h2 id="runs-heading">Run history</h2>

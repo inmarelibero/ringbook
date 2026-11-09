@@ -71,6 +71,8 @@ To add a venue, create a crate under `crates/venues/`, implement `VenueAdapter`,
 
 A run that starts without a journal opens a new venue session, so it starts flat. If the venue restarts while a journal still refers to its old session, the engine halts with `VenueStateLost`: that run's state can't be reconciled, so archive the journal to begin a new run.
 
+A recovered run keeps its run ID, because the ID is stored in the journal header. It stays one run in storage, and its PnL carries on. A run is meant to last across days: `/api/daily` reports each UTC day's PnL as the change from the previous day's last equity sample, and open positions carry over at their current value.
+
 ## Operating a run
 
 ```sh

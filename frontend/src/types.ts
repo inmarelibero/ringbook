@@ -19,6 +19,18 @@ export interface PositionUpdate {
 
 export type Update = BookUpdate | PositionUpdate;
 
+export interface DayRow {
+  day: string;
+  pnl_usd: number;
+  close_usd: number;
+}
+
+export interface DailyPnl {
+  today: string;
+  baseline_usd: number;
+  days: DayRow[];
+}
+
 export interface Run {
   run_id: string;
   mode: string;

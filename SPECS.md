@@ -124,8 +124,8 @@ Every component has one job and one rule it must never break; the hot thread's r
 | Telemetry thread | Collect HDR histograms and counters from the hot thread; publish once per second to the metrics exporter and the storage writer | Be awaited by the hot thread; drop data rather than block | Decoupled observability |
 | Metrics | `tracing` for structured logs in every non-hot component; a Prometheus endpoint for counters, feed health and latency percentiles exported as gauges; Grafana dashboards | Touch the hot thread directly | Standard operational tooling |
 | Storage writer | Tokio task that takes telemetry snapshots through a bounded channel and writes them to TimescaleDB, retrying the end-of-run summary | Lose a run's summary | Durable storage |
-| API gateway | axum, WebSocket push of book, positions and PnL; read-only endpoints for run history from TimescaleDB and the current rules | Read hot-thread state directly; it gets copies via its own ring | Clean read path |
-| Frontend | Live book, positions and PnL, run history | Grow beyond one page | Enough UI to demo |
+| API gateway | axum, WebSocket push of book, positions and PnL; read-only endpoints for run history and daily PnL from TimescaleDB and the current rules | Read hot-thread state directly; it gets copies via its own ring | Clean read path |
+| Frontend | Live books, positions, daily PnL, run history | Grow beyond one page | Enough UI to demo |
 | FIX parser (small extra) | Parse and serialise a subset of FIX 4.4 messages, zero-copy | Pretend to be a full FIX engine | Protocol familiarity |
 
 ### Order book layout
