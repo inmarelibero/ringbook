@@ -124,7 +124,7 @@ Every component has one job and one rule it must never break; the hot thread's r
 | Telemetry thread | Collect HDR histograms and counters from the hot thread; publish once per second to the metrics exporter and the storage writer | Be awaited by the hot thread; drop data rather than block | Decoupled observability |
 | Metrics | `tracing` for structured logs in every non-hot component; a Prometheus endpoint for counters, feed health and latency percentiles exported as gauges; Grafana dashboards | Touch the hot thread directly | Standard operational tooling |
 | Storage writer | Tokio task that takes telemetry snapshots through a bounded channel and writes them to TimescaleDB, retrying the end-of-run summary | Lose a run's summary | Durable storage |
-| API gateway | axum, WebSocket push of book, positions and PnL; read-only endpoints for run history and daily PnL from TimescaleDB and the current rules | Read hot-thread state directly; it gets copies via its own ring | Clean read path |
+| API gateway | axum, WebSocket push of book, own quotes, feed health, positions, PnL and engine counters; read-only endpoints for run history and daily PnL from TimescaleDB and the current rules | Read hot-thread state directly; it gets copies via its own ring | Clean read path |
 | Frontend | Live books, positions, daily PnL, run history | Grow beyond one page | Enough UI to demo |
 | FIX parser (small extra) | Parse and serialise a subset of FIX 4.4 messages, zero-copy | Pretend to be a full FIX engine | Protocol familiarity |
 
@@ -417,7 +417,7 @@ The biggest risk is scope: the first release builds every component together, so
 | Size of the first release | Build in dependency order, and get a replay run working end to end before adding the live order path, telemetry or frontend |
 | Scope creep in the frontend | Frontend capped at one page |
 | Exchange API changes or rate limits | Local recordings keep everything runnable offline and can be reparsed after a format change |
-| VPS jitter in published numbers | Every result states its environment; latency is left off the public demo and stays in Grafana |
+| VPS jitter in published numbers | Every result states its environment; live latency is left off the public demo and stays in Grafana, and the demo shows only replay benchmarks labelled with where they ran |
 | Venue access from the VPS region | Check that Binance's API is reachable from the chosen region before committing to a host |
 
 **Decisions**

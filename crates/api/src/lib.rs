@@ -11,7 +11,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use axum::Router;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
@@ -20,8 +20,8 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Json, Response};
 use axum::routing::get;
-use ringbook_core::{Qty, Scale};
-use ringbook_engine::{ApiBook, ApiPosition, ApiUpdate};
+use ringbook_core::{Price, Qty, Scale, VenueState};
+use ringbook_engine::{ApiBook, ApiPosition, ApiUpdate, EngineCounters, EngineStatus};
 use ringbook_ring::Consumer;
 use serde::Serialize;
 use sqlx::{PgPool, Row};
@@ -104,6 +104,11 @@ enum Outbound<'a> {
         instrument: &'a str,
         bids: Vec<[String; 2]>,
         asks: Vec<[String; 2]>,
+        own_bid: Option<String>,
+        own_ask: Option<String>,
+        feed: &'static str,
+        resyncs: u32,
+        stalls: u32,
     },
     Position {
         venue: &'a str,
@@ -112,6 +117,27 @@ enum Outbound<'a> {
         equity_usd: f64,
         total_equity_usd: f64,
     },
+    Status {
+        engine: &'static str,
+        halt_reason: Option<&'static str>,
+        started_at_ms: u64,
+        events: u64,
+        batches: u64,
+        orders_sent: u64,
+        cancels_sent: u64,
+        fills: u64,
+        risk_rejections: u64,
+        venue_rejections: u64,
+    },
+}
+
+const fn feed_name(state: Option<VenueState>) -> &'static str {
+    match state {
+        None => "connecting",
+        Some(VenueState::Live) => "live",
+        Some(VenueState::Stale) => "stale",
+        Some(VenueState::Resyncing) => "resyncing",
+    }
 }
 
 fn levels(
@@ -134,11 +160,17 @@ fn levels(
 fn book_json(book: &ApiBook, pair: &PairNames) -> Option<String> {
     let price_scale = Scale::new(pair.price_decimals)?;
     let qty_scale = Scale::new(pair.qty_decimals)?;
+    let price = |price: Option<Price>| price.map(|price| price_scale.display(price.0).to_string());
     serde_json::to_string(&Outbound::Book {
         venue: &pair.venue,
         instrument: &pair.instrument,
         bids: levels(&book.bids, price_scale, qty_scale),
         asks: levels(&book.asks, price_scale, qty_scale),
+        own_bid: price(book.own_bid),
+        own_ask: price(book.own_ask),
+        feed: feed_name(book.feed),
+        resyncs: book.resyncs,
+        stalls: book.stalls,
     })
     .ok()
 }
@@ -155,7 +187,28 @@ fn position_json(position: &ApiPosition, pair: &PairNames) -> Option<String> {
     .ok()
 }
 
-fn update_json(update: &ApiUpdate, names: &Names) -> Option<String> {
+fn status_json(counters: &EngineCounters, started_at_ms: u64) -> Option<String> {
+    let (engine, halt_reason) = match counters.status {
+        EngineStatus::Running => ("running", None),
+        EngineStatus::AwaitingReconcile => ("reconciling", None),
+        EngineStatus::Halted(reason) => ("halted", Some(reason.name())),
+    };
+    serde_json::to_string(&Outbound::Status {
+        engine,
+        halt_reason,
+        started_at_ms,
+        events: counters.events,
+        batches: counters.batches,
+        orders_sent: counters.orders_sent,
+        cancels_sent: counters.cancels_sent,
+        fills: counters.fills,
+        risk_rejections: counters.risk_rejections,
+        venue_rejections: counters.venue_rejections,
+    })
+    .ok()
+}
+
+fn update_json(update: &ApiUpdate, names: &Names, started_at_ms: u64) -> Option<String> {
     match update {
         ApiUpdate::Book(book) => {
             book_json(book, names.pairs.get(&(book.venue.0, book.instrument.0))?)
@@ -166,6 +219,7 @@ fn update_json(update: &ApiUpdate, names: &Names) -> Option<String> {
                 .pairs
                 .get(&(position.venue.0, position.instrument.0))?,
         ),
+        ApiUpdate::Status(counters) => status_json(counters, started_at_ms),
     }
 }
 
@@ -208,6 +262,11 @@ pub fn start_bridge(
         }),
     };
     let names = config.names;
+    let started_at_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |since| {
+            u64::try_from(since.as_millis()).unwrap_or(u64::MAX)
+        });
     let thread = std::thread::Builder::new()
         .name("api-bridge".into())
         .spawn(move || {
@@ -215,7 +274,7 @@ pub fn start_bridge(
                 let mut busy = false;
                 while let Some(update) = updates.pop() {
                     busy = true;
-                    if let Some(json) = update_json(&update, &names) {
+                    if let Some(json) = update_json(&update, &names, started_at_ms) {
                         let _ = sender.send(Arc::from(json));
                     }
                 }
@@ -554,7 +613,7 @@ pub fn router(state: ApiState) -> Router {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ringbook_core::{InstrumentId, Price, VenueId};
+    use ringbook_core::{HaltReason, InstrumentId, VenueId};
 
     fn shared(limits: Limits) -> Arc<Shared> {
         Arc::new(Shared {
@@ -632,9 +691,14 @@ mod tests {
             instrument: InstrumentId(2),
             bids: [(Price(0), Qty::ZERO); ringbook_engine::engine::API_DEPTH],
             asks: [(Price(0), Qty::ZERO); ringbook_engine::engine::API_DEPTH],
+            own_bid: None,
+            own_ask: None,
+            feed: None,
+            resyncs: 0,
+            stalls: 0,
         };
         book.bids[0] = (Price(730_005), Qty(1_500));
-        let json = update_json(&ApiUpdate::Book(book), &names()).unwrap();
+        let json = update_json(&ApiUpdate::Book(book), &names(), 0).unwrap();
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(value["type"], "book");
         assert_eq!(value["bids"][0][0], "73000.5");
@@ -653,11 +717,53 @@ mod tests {
                 total_equity_micro_usd: 2_000_000,
             }),
             &names(),
+            0,
         )
         .unwrap();
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(value["qty"], "-0.25");
         assert_eq!(value["total_equity_usd"], 2.0);
+    }
+
+    #[test]
+    fn books_carry_our_quotes_and_the_feed_state() {
+        let mut book = ApiBook {
+            venue: VenueId(1),
+            instrument: InstrumentId(2),
+            bids: [(Price(0), Qty::ZERO); ringbook_engine::engine::API_DEPTH],
+            asks: [(Price(0), Qty::ZERO); ringbook_engine::engine::API_DEPTH],
+            own_bid: Some(Price(730_000)),
+            own_ask: None,
+            feed: Some(VenueState::Resyncing),
+            resyncs: 3,
+            stalls: 1,
+        };
+        book.bids[0] = (Price(730_005), Qty(1_500));
+        let json = update_json(&ApiUpdate::Book(book), &names(), 0).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["own_bid"], "73000");
+        assert!(value["own_ask"].is_null());
+        assert_eq!(value["feed"], "resyncing");
+        assert_eq!(value["resyncs"], 3);
+        assert_eq!(value["stalls"], 1);
+    }
+
+    #[test]
+    fn status_reports_counters_and_the_halt_reason() {
+        let counters = EngineCounters {
+            events: 42,
+            fills: 3,
+            status: EngineStatus::Halted(HaltReason::Drawdown),
+            ..EngineCounters::default()
+        };
+        let json = update_json(&ApiUpdate::Status(counters), &names(), 1_000).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["type"], "status");
+        assert_eq!(value["engine"], "halted");
+        assert_eq!(value["halt_reason"], "Drawdown");
+        assert_eq!(value["events"], 42);
+        assert_eq!(value["fills"], 3);
+        assert_eq!(value["started_at_ms"], 1_000);
     }
 
     #[test]
@@ -667,8 +773,13 @@ mod tests {
             instrument: InstrumentId(9),
             bids: [(Price(0), Qty::ZERO); ringbook_engine::engine::API_DEPTH],
             asks: [(Price(0), Qty::ZERO); ringbook_engine::engine::API_DEPTH],
+            own_bid: None,
+            own_ask: None,
+            feed: None,
+            resyncs: 0,
+            stalls: 0,
         };
-        assert!(update_json(&ApiUpdate::Book(book), &names()).is_none());
+        assert!(update_json(&ApiUpdate::Book(book), &names(), 0).is_none());
     }
 
     #[test]

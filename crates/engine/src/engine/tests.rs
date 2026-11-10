@@ -481,6 +481,60 @@ fn a_full_api_ring_drops_updates_without_blocking() {
     assert!(matches!(harness.api.pop(), Some(ApiUpdate::Book(_))));
 }
 
+/// Drains the API ring, returning the last book and whether a status was sent.
+fn drain_api(harness: &mut Harness) -> (Option<ApiBook>, bool) {
+    let mut book = None;
+    let mut status = false;
+    while let Some(update) = harness.api.pop() {
+        match update {
+            ApiUpdate::Book(update) => book = Some(update),
+            ApiUpdate::Status(_) => status = true,
+            ApiUpdate::Position(_) => {}
+        }
+    }
+    (book, status)
+}
+
+#[test]
+fn the_api_reports_our_quotes_and_feed_departures_from_live() {
+    let mut harness = harness();
+    // Connecting reports Resyncing, which isn't a departure from Live.
+    harness.feed(event(
+        50,
+        false,
+        Payload::VenueStatus(VenueState::Resyncing),
+    ));
+    harness.live_market(100, BID, ASK);
+    let (book, status) = drain_api(&mut harness);
+    let book = book.unwrap();
+    assert!(status);
+    assert_eq!(book.feed, Some(VenueState::Live));
+    assert_eq!((book.resyncs, book.stalls), (0, 0));
+    assert!(book.own_bid.is_some() && book.own_ask.is_some());
+
+    // A stall, then reconnecting: one stall and no resync.
+    harness.feed(event(200, false, Payload::VenueStatus(VenueState::Stale)));
+    harness.feed(event(
+        300,
+        false,
+        Payload::VenueStatus(VenueState::Resyncing),
+    ));
+    harness.live_market(100 + API_PERIOD_NS, BID, ASK);
+    let book = drain_api(&mut harness).0.unwrap();
+    assert_eq!((book.resyncs, book.stalls), (0, 1));
+
+    // A sequence gap while live: one resync.
+    let gap = 200 + API_PERIOD_NS;
+    harness.feed(event(
+        gap,
+        false,
+        Payload::VenueStatus(VenueState::Resyncing),
+    ));
+    harness.live_market(100 + 2 * API_PERIOD_NS, BID, ASK);
+    let book = drain_api(&mut harness).0.unwrap();
+    assert_eq!((book.resyncs, book.stalls), (1, 1));
+}
+
 #[test]
 fn recovery_restores_positions_and_open_orders_from_the_journal() {
     let mut original = harness();

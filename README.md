@@ -42,6 +42,8 @@ scripts/baseline.sh recordings/first
 
 This prints the allocation proof, microbenchmarks, throughput, latency and a determinism check, along with the environment it ran on.
 
+Set `BENCH_JSON=frontend/public/benchmarks.json` to also save the headline numbers for the demo site, which shows them with their environment once the frontend is rebuilt.
+
 **Tick-to-decision** runs from a frame reaching the parser to risk accepting or rejecting the order. **Tick-to-wire** runs to the order's bytes reaching a loopback socket. Latency comes from replay at the recorded pace, because max-speed numbers include ring queueing and only measure throughput.
 
 Internal latency says nothing about reaction speed on live data, which is limited by each venue's update cadence and the network.

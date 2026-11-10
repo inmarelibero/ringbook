@@ -87,6 +87,16 @@ pub struct ApiBook {
     pub bids: [(Price, Qty); API_DEPTH],
     /// The asks, best first; empty entries have zero quantity.
     pub asks: [(Price, Qty); API_DEPTH],
+    /// The price of our working bid, if there is one.
+    pub own_bid: Option<Price>,
+    /// The price of our working ask, if there is one.
+    pub own_ask: Option<Price>,
+    /// The feed's last reported state, or `None` before its first report.
+    pub feed: Option<VenueState>,
+    /// Times the feed left `Live` to rebuild its book.
+    pub resyncs: u32,
+    /// Times the feed left `Live` because data stopped arriving.
+    pub stalls: u32,
 }
 
 /// A position summary pushed to the API.
@@ -112,6 +122,8 @@ pub enum ApiUpdate {
     Book(ApiBook),
     /// A position.
     Position(ApiPosition),
+    /// The engine's counters and status, about once a second.
+    Status(EngineCounters),
 }
 
 /// Whether the engine is free to quote.
@@ -168,6 +180,9 @@ struct Price2(i64);
 struct Slot {
     params: Option<SlotParams>,
     live: bool,
+    feed: Option<VenueState>,
+    resyncs: u32,
+    stalls: u32,
     bid: Working,
     ask: Working,
     open_buy: i64,
@@ -177,6 +192,25 @@ struct Slot {
 }
 
 impl Slot {
+    /// Records a feed state, counting each departure from `Live`. A feed
+    /// reports `Resyncing` while it connects, which isn't counted.
+    #[inline]
+    const fn on_venue_state(&mut self, state: VenueState) {
+        if matches!(self.feed, Some(VenueState::Live)) {
+            match state {
+                VenueState::Resyncing => self.resyncs += 1,
+                VenueState::Stale => self.stalls += 1,
+                VenueState::Live => {}
+            }
+        }
+        self.feed = Some(state);
+        self.live = matches!(state, VenueState::Live);
+    }
+
+    fn working_price(working: &Working) -> Option<Price> {
+        working.id.map(|_| Price(working.price.0))
+    }
+
     const fn working(&mut self, side: Side) -> &mut Working {
         match side {
             Side::Buy => &mut self.bid,
@@ -248,6 +282,9 @@ impl<S: Strategy, L: VenueLink> Engine<S, L> {
         let empty = Slot {
             params: None,
             live: false,
+            feed: None,
+            resyncs: 0,
+            stalls: 0,
             bid: Working::default(),
             ask: Working::default(),
             open_buy: 0,
@@ -509,7 +546,7 @@ impl<S: Strategy, L: VenueLink> Engine<S, L> {
         match event.payload {
             Payload::BookClear => self.books[index].clear(),
             Payload::BookLevel { side, price, qty } => self.books[index].apply(side, price, qty),
-            Payload::VenueStatus(state) => self.slots[index].live = state == VenueState::Live,
+            Payload::VenueStatus(state) => self.slots[index].on_venue_state(state),
             Payload::Trade { .. } => {}
         }
 
@@ -607,13 +644,12 @@ impl<S: Strategy, L: VenueLink> Engine<S, L> {
 
     fn exposure(&mut self, venue: usize, instrument: usize) -> Exposure {
         let slot = &self.slots[slot_index(venue, instrument)];
-        let working_price = |working: &Working| working.id.map(|_| Price(working.price.0));
         Exposure {
             position: self.positions.get(venue, instrument).qty,
             open_buy: slot.open_buy,
             open_sell: slot.open_sell,
-            lowest_own_ask: working_price(&slot.ask),
-            highest_own_bid: working_price(&slot.bid),
+            lowest_own_ask: Slot::working_price(&slot.ask),
+            highest_own_bid: Slot::working_price(&slot.bid),
         }
     }
 
@@ -943,6 +979,14 @@ impl<S: Strategy, L: VenueLink> Engine<S, L> {
         }
         self.counters.book_recentres = recentres;
         self.push_telemetry(TelemetryRecord::Counters(self.counters));
+        if self
+            .channels
+            .api
+            .push(ApiUpdate::Status(self.counters))
+            .is_err()
+        {
+            self.counters.api_drops += 1;
+        }
     }
 
     #[inline]
@@ -961,11 +1005,17 @@ impl<S: Strategy, L: VenueLink> Engine<S, L> {
             levels
         };
         let book = &self.books[index];
+        let slot = &self.slots[index];
         let update = ApiUpdate::Book(ApiBook {
             venue: VenueId(venue as u8),
             instrument: InstrumentId(instrument as u16),
             bids: copy(book, Side::Buy),
             asks: copy(book, Side::Sell),
+            own_bid: Slot::working_price(&slot.bid),
+            own_ask: Slot::working_price(&slot.ask),
+            feed: slot.feed,
+            resyncs: slot.resyncs,
+            stalls: slot.stalls,
         });
         if self.channels.api.push(update).is_err() {
             self.counters.api_drops += 1;
